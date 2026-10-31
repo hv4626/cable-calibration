@@ -254,9 +254,10 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
           <label class="rate" for="costAlg">Estimate from <select id="costAlg"></select></label>
           <span id="costRates" style="display:contents"></span>
           <button type="button" id="costReset">Reset rates</button>
+          <label class="rate"><input type="checkbox" id="costNet"> Net off sites where the estimate is above BOM</label>
         </div>
         <div class="kpis" id="costKpis"></div>
-        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Positive means the estimate needs less cable than the DN raised; red means it needs more. A cable with no line on the DN (0) is left out for that site. Conduit is not costed. Estimates use the coefficients and settings currently selected above.</p>
+        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is not costed. Estimates use the coefficients and settings currently selected above.</p>
         <div class="sitewrap" style="margin-top:8px">
           <table class="sites cost" id="costTbl"><thead></thead><tbody></tbody></table>
         </div>
@@ -668,6 +669,8 @@ function setupCost() {
     l.querySelectorAll("input").forEach((el) => (el.oninput = () => { const r = parseFloat($("rate_" + k).value), n = parseFloat($("runs_" + k).value); if (isFinite(r) && r >= 0) cost.rates[k].rate = r; if (isFinite(n) && n > 0) cost.rates[k].runs = n; saveCost(); schedule(); }));
     box.appendChild(l);
   });
+  $("costNet").checked = !!cost.net;
+  $("costNet").onchange = (e) => { cost.net = e.target.checked; saveCost(); schedule(); };
   $("costReset").onclick = () => { cost.rates = JSON.parse(JSON.stringify(COST_DEF)); saveCost(); setupCost(); schedule(); };
 }
 function renderCost(sites) {
@@ -678,7 +681,8 @@ function renderCost(sites) {
     COST_OUTS.forEach((k) => {
       const bom = d[k], est = isFinite(e[k]) ? Math.ceil(e[k] - 1e-6) : NaN, unit = cost.rates[k].rate * cost.rates[k].runs;
       if (!isFinite(bom) || !isFinite(est)) { r[k] = null; return; }
-      r[k] = { bom, est, sav: (bom - est) * unit, bc: bom * unit, ec: est * unit };
+      const diff = (bom - est) * unit;
+      r[k] = { bom, est, diff, sav: cost.net ? diff : Math.max(0, diff), extra: Math.max(0, -diff), bc: bom * unit, ec: est * unit };
       r.tot += r[k].sav; r.has++;
     });
     if (!r.has) r.tot = NaN;
@@ -691,10 +695,10 @@ function renderCost(sites) {
     const v = rows.map((r) => r[k]).filter(Boolean), n = v.length;
     const avg = n ? v.reduce((t, x) => t + x.sav, 0) / n : NaN, sum = v.reduce((t, x) => t + x.sav, 0);
     const bc = n ? v.reduce((t, x) => t + x.bc, 0) / n : NaN, ec = n ? v.reduce((t, x) => t + x.ec, 0) / n : NaN;
-    const cheaper = v.filter((x) => x.sav > 0).length;
+    const cheaper = v.filter((x) => x.diff > 0).length, above = v.filter((x) => x.diff < 0), extra = above.reduce((t, x) => t + x.extra, 0);
     const c = cost.rates[k];
     const div = document.createElement("div"); div.className = "kpi";
-    div.innerHTML = `<div class="k">${OUT_NAME[k]} · ₹${c.rate}/m × ${c.runs} run${c.runs > 1 ? "s" : ""}</div><div class="v${avg < 0 ? " neg" : ""}">${rupee(avg)}</div><div class="d">average saved per site<br>BOM ${rupee(bc)} vs estimate ${rupee(ec)} per site<br>estimate cheaper on ${n ? Math.round((100 * cheaper) / n) : 0}% of ${n} sites · ${rupee(sum)} in all</div>`;
+    div.innerHTML = `<div class="k">${OUT_NAME[k]} · ₹${c.rate}/m × ${c.runs} run${c.runs > 1 ? "s" : ""}</div><div class="v${avg < 0 ? " neg" : ""}">${rupee(avg)}</div><div class="d">average saved per site<br>BOM ${rupee(bc)} vs estimate ${rupee(ec)} per site<br>estimate cheaper on ${n ? Math.round((100 * cheaper) / n) : 0}% of ${n} sites · ${rupee(sum)} in all${above.length ? `<br><span style="color:var(--under)">estimate above BOM on ${above.length} sites, ${rupee(extra)} extra${cost.net ? " (netted off)" : " (not counted)"}</span>` : ""}</div>`;
     kp.appendChild(div);
   });
   const tr = rows.filter((r) => r.has); tr.forEach((r) => { allSav += r.tot; allN++; });
@@ -716,7 +720,7 @@ function renderCost(sites) {
   const frag = document.createDocumentFragment();
   idx.forEach((r) => {
     const row = document.createElement("tr");
-    row.innerHTML = `<td>${r.s.job}</td><td>${r.s.st}</td>` + COST_OUTS.map((k) => { const x = r[k]; if (!x) return "<td>–</td><td>–</td><td>–</td>"; return `<td>${x.bom}</td><td>${x.est}</td><td class="sv${x.sav < 0 ? " neg" : ""}">${rupee(x.sav)}</td>`; }).join("") + `<td class="sv${r.tot < 0 ? " neg" : ""}">${rupee(r.tot)}</td>`;
+    row.innerHTML = `<td>${r.s.job}</td><td>${r.s.st}</td>` + COST_OUTS.map((k) => { const x = r[k]; if (!x) return "<td>–</td><td>–</td><td>–</td>"; return `<td>${x.bom}</td><td>${x.est}</td><td class="sv${x.diff < 0 ? " neg" : ""}"${x.diff < 0 && !cost.net ? ` title="Estimate is above BOM: ${rupee(x.extra)} extra, counted as 0"` : ""}>${x.diff < 0 && !cost.net ? `₹0 <small>(+${rupee(x.extra)})</small>` : rupee(x.sav)}</td>`; }).join("") + `<td class="sv${r.tot < 0 ? " neg" : ""}">${rupee(r.tot)}</td>`;
     row.onmouseenter = () => highlight(r.s.job); row.onmouseleave = () => highlight(null);
     frag.appendChild(row);
   });
