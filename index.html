@@ -257,7 +257,7 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
           <label class="rate"><input type="checkbox" id="costNet"> Net off sites where the estimate is above BOM</label>
         </div>
         <div class="kpis" id="costKpis"></div>
-        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is not costed. Estimates use the coefficients and settings currently selected above.</p>
+        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is costed in metres: the BOM pipe count &times; pipe length (set on the left) against the conduit estimate. Estimates use the coefficients and settings currently selected above.</p>
         <div class="sitewrap" style="margin-top:8px">
           <table class="sites cost" id="costTbl"><thead></thead><tbody></tbody></table>
         </div>
@@ -648,10 +648,11 @@ function render() {
 }
 // ---------- cost per site: estimate vs BOM ----------
 const HAS_DN = ALGOS.some((x) => x[0] === "DN");
-const COST_OUTS = ["DC", "AC", "GC", "LA"];
-const COST_DEF = { DC: { rate: 50, runs: 2 }, AC: { rate: 50, runs: 1 }, GC: { rate: 40, runs: 1 }, LA: { rate: 23, runs: 1 } };
+const COST_OUTS = ["DC", "AC", "GC", "LA", "Conduit"];
+const COST_DEF = { DC: { rate: 50, runs: 2 }, AC: { rate: 50, runs: 1 }, GC: { rate: 40, runs: 1 }, LA: { rate: 23, runs: 1 }, Conduit: { rate: 20, runs: 1 } };
 const COST_KEY = KEY + "-cost";
 let cost = (() => { try { const s = JSON.parse(localStorage.getItem(COST_KEY) || "null"); if (s && s.rates && s.alg) return s; } catch (e) {} return null; })() || { alg: "PS", rates: JSON.parse(JSON.stringify(COST_DEF)), sort: { col: "tot", dir: -1 } };
+COST_OUTS.forEach((k) => { if (!cost.rates[k]) cost.rates[k] = Object.assign({}, COST_DEF[k]); });
 const saveCost = () => { try { localStorage.setItem(COST_KEY, JSON.stringify(cost)); } catch (e) {} };
 const rupee = (v) => (isFinite(v) ? (v < 0 ? "−" : "") + "₹" + Math.round(Math.abs(v)).toLocaleString("en-IN") : "–");
 function setupCost() {
@@ -704,7 +705,7 @@ function renderCost(sites) {
   const tr = rows.filter((r) => r.has); tr.forEach((r) => { allSav += r.tot; allN++; });
   const all = document.createElement("div"); all.className = "kpi all";
   const allAvg = allN ? allSav / allN : NaN;
-  all.innerHTML = `<div class="k">DC + AC + Earthing + LA</div><div class="v${allAvg < 0 ? " neg" : ""}">${rupee(allAvg)}</div><div class="d">average saved per site<br>${rupee(allSav)} across ${allN} sites</div>`;
+  all.innerHTML = `<div class="k">All five cables</div><div class="v${allAvg < 0 ? " neg" : ""}">${rupee(allAvg)}</div><div class="d">average saved per site<br>${rupee(allSav)} across ${allN} sites</div>`;
   kp.prepend(all);
   $("costN").textContent = `${sites.length} sites · estimate: ${NAME[a]}`;
   // table
