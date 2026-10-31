@@ -76,11 +76,11 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .algo-chk:not(:has(input:checked)) { color: var(--muted); }
 .mk { width: 12px; height: 12px; display: inline-block; flex: none; }
 .bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
-.mode { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; padding: 7px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.mode { min-width: 0; max-width: 100%; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; padding: 7px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .mode legend { float: left; margin-right: 12px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 0; }
 .mode label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 500; }
 .mode input { accent-color: var(--accent); margin: 0; }
-.mode select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); max-width: 100%; }
+.mode select { min-width: 0; text-overflow: ellipsis; font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); max-width: 100%; }
 select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; min-width: 0; }
 .cmp { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -128,6 +128,22 @@ table.sites td.u { color: var(--under); font-weight: 600; background: var(--unde
 table.sites tr:hover td { background: var(--surface-2); }
 .flag { font-size: 12px; color: var(--muted); }
 .sitewrap { max-height: 560px; overflow: auto; }
+.cost-ctl { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 10px; }
+.cost-ctl .rate { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.cost-ctl .rate input { width: 64px; }
+.cost-ctl .rate input.runs { width: 48px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
+.kpi { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface-2); min-width: 0; }
+.kpi .k { font-size: 12px; color: var(--muted); }
+.kpi .v { font-family: var(--font-data); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.kpi .v.neg { color: var(--under); }
+.kpi .d { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.kpi.all { border-color: var(--fg); }
+table.sites.cost th:nth-child(-n+3), table.sites.cost td:nth-child(-n+3) { text-align: right; }
+table.sites.cost th:nth-child(-n+2), table.sites.cost td:nth-child(-n+2) { text-align: left; }
+table.sites.cost td.neg { color: var(--under); }
+table.sites.cost td.sv { font-weight: 600; }
+table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0; position: static; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -226,6 +242,23 @@ table.sites tr:hover td { background: var(--surface-2); }
         </div>
         <div class="sitewrap" style="margin-top:8px">
           <table class="sites" id="sites"><thead></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <section class="card" id="costCard" hidden>
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline">
+          <h3 style="margin:0;font-size:15px">Cost per site: estimate vs BOM</h3>
+          <span class="flag" id="costN"></span>
+        </div>
+        <div class="cost-ctl">
+          <label class="rate" for="costAlg">Estimate from <select id="costAlg"></select></label>
+          <span id="costRates" style="display:contents"></span>
+          <button type="button" id="costReset">Reset rates</button>
+        </div>
+        <div class="kpis" id="costKpis"></div>
+        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Positive means the estimate needs less cable than the DN raised; red means it needs more. A cable with no line on the DN (0) is left out for that site. Conduit is not costed. Estimates use the coefficients and settings currently selected above.</p>
+        <div class="sitewrap" style="margin-top:8px">
+          <table class="sites cost" id="costTbl"><thead></thead><tbody></tbody></table>
         </div>
       </section>
     </main>
@@ -610,6 +643,84 @@ function render() {
     host.appendChild(card);
   });
   renderTable(sites, results, shown);
+  renderCost(sites);
+}
+// ---------- cost per site: estimate vs BOM ----------
+const HAS_DN = ALGOS.some((x) => x[0] === "DN");
+const COST_OUTS = ["DC", "AC", "GC", "LA"];
+const COST_DEF = { DC: { rate: 50, runs: 2 }, AC: { rate: 50, runs: 1 }, GC: { rate: 40, runs: 1 }, LA: { rate: 23, runs: 1 } };
+const COST_KEY = KEY + "-cost";
+let cost = (() => { try { const s = JSON.parse(localStorage.getItem(COST_KEY) || "null"); if (s && s.rates && s.alg) return s; } catch (e) {} return null; })() || { alg: "PS", rates: JSON.parse(JSON.stringify(COST_DEF)), sort: { col: "tot", dir: -1 } };
+const saveCost = () => { try { localStorage.setItem(COST_KEY, JSON.stringify(cost)); } catch (e) {} };
+const rupee = (v) => (isFinite(v) ? (v < 0 ? "−" : "") + "₹" + Math.round(Math.abs(v)).toLocaleString("en-IN") : "–");
+function setupCost() {
+  if (!HAS_DN) return;
+  $("costCard").hidden = false;
+  const sel = $("costAlg");
+  CALC_ALGOS.forEach(([a, nm]) => { const o = document.createElement("option"); o.value = a; o.textContent = nm; sel.appendChild(o); });
+  if (!CALC_ALGOS.some((x) => x[0] === cost.alg)) cost.alg = "PS";
+  sel.value = cost.alg;
+  sel.onchange = (e) => { cost.alg = e.target.value; saveCost(); schedule(); };
+  const box = $("costRates"); box.innerHTML = "";
+  COST_OUTS.forEach((k) => {
+    const l = document.createElement("span"); l.className = "rate";
+    l.innerHTML = `<b>${k === "GC" ? "Earthing" : k}</b> <input type="number" min="0" step="1" id="rate_${k}" aria-label="${k} rupees per metre" value="${cost.rates[k].rate}"> &#8377;/m &times; <input type="number" class="runs" min="1" step="1" id="runs_${k}" aria-label="${k} runs" value="${cost.rates[k].runs}"> run${cost.rates[k].runs > 1 ? "s" : ""}`;
+    l.querySelectorAll("input").forEach((el) => (el.oninput = () => { const r = parseFloat($("rate_" + k).value), n = parseFloat($("runs_" + k).value); if (isFinite(r) && r >= 0) cost.rates[k].rate = r; if (isFinite(n) && n > 0) cost.rates[k].runs = n; saveCost(); schedule(); }));
+    box.appendChild(l);
+  });
+  $("costReset").onclick = () => { cost.rates = JSON.parse(JSON.stringify(COST_DEF)); saveCost(); setupCost(); schedule(); };
+}
+function renderCost(sites) {
+  if (!HAS_DN) return;
+  const a = cost.alg;
+  const rows = sites.map((s) => {
+    const e = runA(s, a, P), d = runA(s, "DN", P), r = { s, tot: 0, has: 0 };
+    COST_OUTS.forEach((k) => {
+      const bom = d[k], est = isFinite(e[k]) ? Math.ceil(e[k] - 1e-6) : NaN, unit = cost.rates[k].rate * cost.rates[k].runs;
+      if (!isFinite(bom) || !isFinite(est)) { r[k] = null; return; }
+      r[k] = { bom, est, sav: (bom - est) * unit, bc: bom * unit, ec: est * unit };
+      r.tot += r[k].sav; r.has++;
+    });
+    if (!r.has) r.tot = NaN;
+    return r;
+  });
+  // averages per cable
+  const kp = $("costKpis"); kp.innerHTML = "";
+  let allSav = 0, allN = 0;
+  COST_OUTS.forEach((k) => {
+    const v = rows.map((r) => r[k]).filter(Boolean), n = v.length;
+    const avg = n ? v.reduce((t, x) => t + x.sav, 0) / n : NaN, sum = v.reduce((t, x) => t + x.sav, 0);
+    const bc = n ? v.reduce((t, x) => t + x.bc, 0) / n : NaN, ec = n ? v.reduce((t, x) => t + x.ec, 0) / n : NaN;
+    const cheaper = v.filter((x) => x.sav > 0).length;
+    const c = cost.rates[k];
+    const div = document.createElement("div"); div.className = "kpi";
+    div.innerHTML = `<div class="k">${OUT_NAME[k]} · ₹${c.rate}/m × ${c.runs} run${c.runs > 1 ? "s" : ""}</div><div class="v${avg < 0 ? " neg" : ""}">${rupee(avg)}</div><div class="d">average saved per site<br>BOM ${rupee(bc)} vs estimate ${rupee(ec)} per site<br>estimate cheaper on ${n ? Math.round((100 * cheaper) / n) : 0}% of ${n} sites · ${rupee(sum)} in all</div>`;
+    kp.appendChild(div);
+  });
+  const tr = rows.filter((r) => r.has); tr.forEach((r) => { allSav += r.tot; allN++; });
+  const all = document.createElement("div"); all.className = "kpi all";
+  const allAvg = allN ? allSav / allN : NaN;
+  all.innerHTML = `<div class="k">DC + AC + Earthing + LA</div><div class="v${allAvg < 0 ? " neg" : ""}">${rupee(allAvg)}</div><div class="d">average saved per site<br>${rupee(allSav)} across ${allN} sites</div>`;
+  kp.prepend(all);
+  $("costN").textContent = `${sites.length} sites · estimate: ${NAME[a]}`;
+  // table
+  const t = $("costTbl");
+  const so = cost.sort || { col: "tot", dir: -1 };
+  const sub = [["bom", "BOM m"], ["est", "Est. m"], ["sav", "Saved"]];
+  t.tHead.innerHTML = `<tr><th class="grp" colspan="2"></th>${COST_OUTS.map((k) => `<th class="grp" colspan="3">${k === "GC" ? "Earthing" : k}</th>`).join("")}<th class="grp"></th></tr>` +
+    `<tr><th data-c="job">Job</th><th data-c="st">State</th>${COST_OUTS.map((k) => sub.map(([c, l]) => `<th data-c="${k}.${c}">${l}${so.col === k + "." + c ? (so.dir < 0 ? " ▼" : " ▲") : ""}</th>`).join("")).join("")}<th data-c="tot">Total saved${so.col === "tot" ? (so.dir < 0 ? " ▼" : " ▲") : ""}</th></tr>`;
+  t.tHead.querySelectorAll("th[data-c]").forEach((th) => (th.onclick = () => { const c = th.dataset.c; cost.sort = { col: c, dir: so.col === c ? -so.dir : -1 }; saveCost(); renderCost(sites); }));
+  const val = (r, c) => { if (c === "job") return r.s.job; if (c === "st") return r.s.st; if (c === "tot") return isFinite(r.tot) ? r.tot : null; const [k, f] = c.split("."); return r[k] ? r[k][f] : null; };
+  const idx = rows.slice().sort((x, y) => { const p = val(x, so.col), q = val(y, so.col); if (p === null) return 1; if (q === null) return -1; return (p > q ? 1 : p < q ? -1 : 0) * so.dir; });
+  const body = t.tBodies[0]; body.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  idx.forEach((r) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td>${r.s.job}</td><td>${r.s.st}</td>` + COST_OUTS.map((k) => { const x = r[k]; if (!x) return "<td>–</td><td>–</td><td>–</td>"; return `<td>${x.bom}</td><td>${x.est}</td><td class="sv${x.sav < 0 ? " neg" : ""}">${rupee(x.sav)}</td>`; }).join("") + `<td class="sv${r.tot < 0 ? " neg" : ""}">${rupee(r.tot)}</td>`;
+    row.onmouseenter = () => highlight(r.s.job); row.onmouseleave = () => highlight(null);
+    frag.appendChild(row);
+  });
+  body.appendChild(frag);
 }
 function renderTable(sites, results, shown) {
   const k = ui.tblOut;
@@ -650,6 +761,6 @@ const nOut = DATA.out ? Object.values(DATA.out).reduce((s, o) => s + Object.valu
 $("nOut").textContent = DATA.out && DATA.out.MPS ? `${Object.values(DATA.out.MPS).reduce((t, v) => t + v.length, 0)} audits for Mid Point (Short); each algorithm has its own list` : "none";
 $("hideOut").checked = ui.hideOut;
 $("hideOut").onchange = (e) => { ui.hideOut = e.target.checked; schedule(); };
-renderChecks(); renderEditTabs(); bindGlobal(); renderCal(); updateHint(); render();
+setupCost(); renderChecks(); renderEditTabs(); bindGlobal(); renderCal(); updateHint(); render();
 setTimeout(() => { document.querySelectorAll(".rail input[type=number]").forEach((el) => { if (String(el.value) !== el.defaultValue && el.value !== "") el.dispatchEvent(new Event("change")); }); }, 50);
 </script>
