@@ -232,6 +232,15 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
         <div class="scroll" style="margin-top:8px"><table class="cmp" id="coefTbl" aria-label="m and c in use for each algorithm"></table></div>
         <p class="note">L' = m &times; L + c for each layer. V' = m &times; V raw + c, where V raw = Floors &times; Floor height + Parapet. v37 has no m and c table.</p>
       </section>
+
+      <section class="card">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+          <h3 style="margin:0;font-size:15px">All coefficient sets side by side</h3>
+          <label class="flag" style="display:inline-flex;gap:6px;align-items:center">Algorithm <select id="verAlg"></select></label>
+        </div>
+        <div class="scroll" style="margin-top:8px"><table class="cmp" id="verTbl" aria-label="m and c of every coefficient set"></table></div>
+        <p class="note">Each column is one set from the Workbook values dropdown, as m / c. The set in use is highlighted; pick another in the dropdown above to see its effect on the plots and the cost.</p>
+      </section>
       <nav class="jump" aria-label="Jump to plot" id="jump"></nav>
       <div class="plots" id="plots"></div>
 
@@ -844,7 +853,15 @@ function renderCoef() {
   $("coefTbl").innerHTML = h + "</tbody>";
   $("coefMode").textContent = ui.mode === "base" ? "Baseline: m = 1, c = 0" : (curVer().note || curVer().label);
 }
-const _render = render; render = function () { _render(); renderCoef(); };
+let verAlg = "PS";
+(() => { const s = $("verAlg"); ["P", "MP", "PS", "MPS"].forEach((a) => { const o = document.createElement("option"); o.value = a; o.textContent = NAME[a]; s.appendChild(o); }); s.value = verAlg; s.onchange = (e) => { verAlg = e.target.value; renderVerTbl(); }; })();
+function renderVerTbl() {
+  const a = verAlg, f = (v) => (v === undefined ? "–" : (+v).toFixed(2).replace(/\.?0+$/, "") || "0");
+  let h = "<thead><tr><th>Layer</th>" + VERS.map((v) => `<th style="white-space:normal;min-width:110px;text-align:right${v.id === ui.ver ? ";color:var(--accent)" : ""}">${v.label}</th>`).join("") + "</tr></thead><tbody>";
+  LAYERS.forEach((l, i) => { h += `<tr><td>${l}</td>` + VERS.map((v) => { const r = (v.cal[a] || [])[i] || (i === 7 ? [1, 0] : undefined); return `<td${v.id === ui.ver ? ' style="color:var(--accent);font-weight:600"' : ""}>${r ? f(r[0]) + " / " + f(r[1]) : "–"}</td>`; }).join("") + "</tr>"; });
+  $("verTbl").innerHTML = h + "</tbody>";
+}
+const _render = render; render = function () { _render(); renderCoef(); renderVerTbl(); };
 const nOut = DATA.out ? Object.values(DATA.out).reduce((s, o) => s + Object.values(o).reduce((t, v) => t + v.length, 0), 0) : 0;
 $("nOut").textContent = DATA.out && DATA.out.MPS ? `${Object.values(DATA.out.MPS).reduce((t, v) => t + v.length, 0)} audits for Mid Point (Short); each algorithm has its own list` : "none";
 $("hideOut").checked = ui.hideOut;
