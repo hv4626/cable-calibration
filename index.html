@@ -230,7 +230,7 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
           <span class="flag" id="coefMode"></span>
         </div>
         <div class="scroll" style="margin-top:8px"><table class="cmp" id="coefTbl" aria-label="m and c in use for each algorithm"></table></div>
-        <p class="note">L' = m &times; L + c for each layer. V' = m &times; V raw + c, where V raw = Floors &times; Floor height + Parapet. v37 has no m and c table.</p>
+        <p class="note">L' = m &times; L + c for each layer. V' = m &times; V raw + c, where V raw = Floors &times; Floor height + Parapet. v37 has no m and c table; its DC is shown per run, half of the cable tool's both-wire figure.</p>
       </section>
 
       <section class="card">
@@ -266,7 +266,7 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
           <label class="rate"><input type="checkbox" id="costNet"> Net off sites where the estimate is above BOM</label>
         </div>
         <div class="kpis" id="costKpis"></div>
-        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is costed in metres: the BOM pipe count &times; pipe length (set on the left) against the conduit estimate. Estimates use the coefficients and settings currently selected above. v37 reports DC for both wires, so here its DC is halved to one run before the runs multiplier.</p>
+        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is costed in metres: the BOM pipe count &times; pipe length (set on the left) against the conduit estimate. Estimates use the coefficients and settings currently selected above. v37 DC is per run, like the BOM and the other algorithms.</p>
         <div class="sitewrap" style="margin-top:8px">
           <table class="sites cost" id="costTbl"><thead></thead><tbody></tbody></table>
         </div>
@@ -431,7 +431,9 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
       const DC = Math.max(nStrings * 2 * Math.abs(Z - invZ), DCb);
       const ACf = Math.max(q.acmin, Math.max(invZ, ACb));
       const GC = Math.max(Math.max(Z, invZ), GCb), LA = Math.max(Z + q.laMastH, LAb);
-      return { DC: roundup(DC), AC: roundup(ACf), GC: roundup(GC), LA: roundup(LA), Conduit: pipes * pl, pipes: pipes };
+      // The tool's DC counts both wires (+ and -). QHSE, the BOM and the other algorithms count DC as one run,
+      // so v37's DC output is per run (half the tool's figure); DCwires keeps the tool's own number.
+      return { DC: roundup(DC / 2), DCwires: roundup(DC), AC: roundup(ACf), GC: roundup(GC), LA: roundup(LA), Conduit: pipes * pl, pipes: pipes };
     }
     function run(s, algo, p) { return algo === "v37" ? v37(s, p) : matrix(s, algo, p); }
     return { run: run, grid: grid };
@@ -772,8 +774,7 @@ function renderCost(sites) {
   const rows = sites.map((s) => {
     const e = runA(s, a, P), d = runA(s, "DN", P), r = { s, tot: 0, has: 0 };
     COST_OUTS.forEach((k) => {
-      // v37 reports DC for both wires; the rate's runs already double it, so cost v37 DC per run
-      const ek = a === "v37" && k === "DC" ? e[k] / 2 : e[k];
+      const ek = e[k];
       const bom = d[k], est = isFinite(ek) ? Math.ceil(ek - 1e-6) : NaN, unit = cost.rates[k].rate * cost.rates[k].runs;
       if (!isFinite(bom) || !isFinite(est)) { r[k] = null; return; }
       const diff = (bom - est) * unit;
