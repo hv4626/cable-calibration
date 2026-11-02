@@ -266,7 +266,7 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
           <label class="rate"><input type="checkbox" id="costNet"> Net off sites where the estimate is above BOM</label>
         </div>
         <div class="kpis" id="costKpis"></div>
-        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is costed in metres: the BOM pipe count &times; pipe length (set on the left) against the conduit estimate. Estimates use the coefficients and settings currently selected above.</p>
+        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is costed in metres: the BOM pipe count &times; pipe length (set on the left) against the conduit estimate. Estimates use the coefficients and settings currently selected above. v37 reports DC for both wires, so here its DC is halved to one run before the runs multiplier.</p>
         <div class="sitewrap" style="margin-top:8px">
           <table class="sites cost" id="costTbl"><thead></thead><tbody></tbody></table>
         </div>
@@ -772,7 +772,9 @@ function renderCost(sites) {
   const rows = sites.map((s) => {
     const e = runA(s, a, P), d = runA(s, "DN", P), r = { s, tot: 0, has: 0 };
     COST_OUTS.forEach((k) => {
-      const bom = d[k], est = isFinite(e[k]) ? Math.ceil(e[k] - 1e-6) : NaN, unit = cost.rates[k].rate * cost.rates[k].runs;
+      // v37 reports DC for both wires; the rate's runs already double it, so cost v37 DC per run
+      const ek = a === "v37" && k === "DC" ? e[k] / 2 : e[k];
+      const bom = d[k], est = isFinite(ek) ? Math.ceil(ek - 1e-6) : NaN, unit = cost.rates[k].rate * cost.rates[k].runs;
       if (!isFinite(bom) || !isFinite(est)) { r[k] = null; return; }
       const diff = (bom - est) * unit;
       r[k] = { bom, est, diff, sav: cost.net ? diff : Math.max(0, diff), extra: Math.max(0, -diff), bc: bom * unit, ec: est * unit };
