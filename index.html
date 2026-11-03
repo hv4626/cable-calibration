@@ -264,9 +264,10 @@ table.sites.cost th.grp { text-align: center; cursor: default; border-bottom: 0;
           <span id="costRates" style="display:contents"></span>
           <button type="button" id="costReset">Reset rates</button>
           <label class="rate"><input type="checkbox" id="costNet"> Net off sites where the estimate is above BOM</label>
+          <label class="rate"><input type="checkbox" id="costMPc"> Leave MP sites out of the conduit cost</label>
         </div>
         <div class="kpis" id="costKpis"></div>
-        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. Conduit is costed in metres: the BOM pipe count &times; pipe length (set on the left) against the conduit estimate. Estimates use the coefficients and settings currently selected above. v37 DC is per run, like the BOM and the other algorithms.</p>
+        <p class="note">Saving = (BOM metres &minus; estimate metres) &times; &#8377;/m &times; runs, per site, with the estimate rounded up to whole metres. Where the estimate is above BOM the saving counts as 0, and that extra cost is shown on its own in red (tick the box above to subtract it instead). A cable with no line on the DN (0) is left out for that site. MP sites are left out of the conduit cost while their conduit audits are being checked with QHSE (untick to include them); they stay in every other cable and in the plots. Conduit is costed in metres: the BOM pipe count &times; pipe length (set on the left) against the conduit estimate. Estimates use the coefficients and settings currently selected above. v37 DC is per run, like the BOM and the other algorithms.</p>
         <div class="sitewrap" style="margin-top:8px">
           <table class="sites cost" id="costTbl"><thead></thead><tbody></tbody></table>
         </div>
@@ -765,6 +766,9 @@ function setupCost() {
     box.appendChild(l);
   });
   $("costNet").checked = !!cost.net;
+  if (cost.skipMPConduit === undefined) cost.skipMPConduit = true;   // MP conduit audits are under review with QHSE
+  $("costMPc").checked = cost.skipMPConduit;
+  $("costMPc").onchange = (e) => { cost.skipMPConduit = e.target.checked; saveCost(); schedule(); };
   $("costNet").onchange = (e) => { cost.net = e.target.checked; saveCost(); schedule(); };
   $("costReset").onclick = () => { cost.rates = JSON.parse(JSON.stringify(COST_DEF)); saveCost(); setupCost(); schedule(); };
 }
@@ -776,7 +780,7 @@ function renderCost(sites) {
     COST_OUTS.forEach((k) => {
       const ek = e[k];
       const bom = d[k], est = isFinite(ek) ? Math.ceil(ek - 1e-6) : NaN, unit = cost.rates[k].rate * cost.rates[k].runs;
-      if (!isFinite(bom) || !isFinite(est)) { r[k] = null; return; }
+      if (!isFinite(bom) || !isFinite(est) || (k === "Conduit" && cost.skipMPConduit && s.st === "MP")) { r[k] = null; return; }
       const diff = (bom - est) * unit;
       r[k] = { bom, est, diff, sav: cost.net ? diff : Math.max(0, diff), extra: Math.max(0, -diff), bc: bom * unit, ec: est * unit };
       r.tot += r[k].sav; r.has++;
